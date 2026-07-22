@@ -63,3 +63,22 @@ def test_los_hashtags_ignoran_genericos_y_muletillas():
     _, _, hashtags = make_metadata(_cand(texto))
     assert "iluminacion" in hashtags
     assert "video" not in hashtags and "clip" not in hashtags
+
+
+def test_el_titulo_no_trae_groserias():
+    # la frase con más gancho puede venir con groserías leves; el audio las
+    # tolera pero el título no (YouTube limita anuncios por el título)
+    titulo, _, _ = make_metadata(
+        _cand(SOSA, "El puto error que casi todos cometen es este.", CIERRE))
+    assert "puto" not in titulo.lower()
+    assert "error" in titulo.lower()  # la frase sigue siendo la del gancho
+
+
+def test_el_titulo_no_termina_en_puntuacion_colgante():
+    # ni el punto final de la frase ni la coma donde cayó un recorte
+    largo = ("El error que cometen todas las personas que empiezan, "
+             "sin excepcion alguna conocida, es no revisar nunca jamas "
+             "la configuracion inicial que trae por defecto el programa.")
+    for frases in [(SOSA, CON_GANCHO, CIERRE), (largo,)]:
+        titulo, _, _ = make_metadata(_cand(*frases))
+        assert titulo and not titulo.endswith((".", ",", ";", ":"))

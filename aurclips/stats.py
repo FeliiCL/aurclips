@@ -29,22 +29,19 @@ def _parse_iso(value):
 
 
 def fetch_stats(cfg, db) -> int:
-    """Actualiza views/likes de los clips con status='uploaded' y youtube_id.
+    """Actualiza views/likes de los Shorts publicados con id de YouTube.
 
     - Usa ``get_credentials(cfg, interactive=False)`` de ``.upload`` y construye
       el cliente youtube v3. Llama ``videos.list(part="statistics", id=...)``
       con hasta 50 ids por llamada, separados por coma.
-    - Actualiza ``clips.views``, ``clips.likes`` y ``clips.stats_at`` (UTC ISO).
+    - Guarda las vistas y los likes de toda la tanda de una sola vez.
     - Si la API devuelve 403 por scopes insuficientes: avisa que hay que correr
       de nuevo ``python -m aurclips auth`` (el token viejo no tiene el scope de
       lectura) y devuelve 0. Cualquier otra excepción: aviso y 0.
     - Devuelve cuántos clips actualizó."""
     from .upload import get_credentials
 
-    rows = db.conn.execute(
-        "SELECT id, youtube_id FROM clips "
-        "WHERE status = 'uploaded' AND youtube_id IS NOT NULL AND youtube_id != ''"
-    ).fetchall()
+    rows = db.uploaded_with_youtube_id()
     if not rows:
         print("  [stats] no hay clips subidos con id de YouTube")
         return 0
@@ -75,8 +72,7 @@ def fetch_stats(cfg, db) -> int:
         by_yt.setdefault(r["youtube_id"], r["id"])
     ids = list(by_yt.keys())
 
-    stamp = _now_iso()
-    updated = 0
+    metrics: list[tuple[int, int, int]] = []
     try:
         for i in range(0, len(ids), 50):
             batch = ids[i:i + 50]
@@ -90,17 +86,12 @@ def fetch_stats(cfg, db) -> int:
                 st = item.get("statistics", {})
                 views = int(st.get("viewCount", 0) or 0)
                 likes = int(st.get("likeCount", 0) or 0)
-                db.conn.execute(
-                    "UPDATE clips SET views = ?, likes = ?, stats_at = ? WHERE id = ?",
-                    (views, likes, stamp, clip_id),
-                )
-                updated += 1
-        db.conn.commit()
+                metrics.append((clip_id, views, likes))
+        updated = db.record_metrics(metrics)
     except HttpError as e:
         status = getattr(getattr(e, "resp", None), "status", None)
         if status is None:
             status = getattr(e, "status_code", None)
-        db.conn.rollback()
         if status == 403:
             print("  [aviso] YouTube devolvió 403 (permisos insuficientes).")
             print("          El token actual no tiene el scope de lectura de estadísticas.")
@@ -109,7 +100,6 @@ def fetch_stats(cfg, db) -> int:
         print(f"  [aviso] error de la API de YouTube: {e}")
         return 0
     except Exception as e:  # noqa: BLE001
-        db.conn.rollback()
         print(f"  [aviso] no se pudieron obtener estadísticas: {e}")
         return 0
 
@@ -122,18 +112,18 @@ def source_performance(db) -> dict[int, float]:
 
     Sirve para saber qué contenido fuente rinde mejor. Los videos sin datos de
     vistas no aparecen en el resultado."""
-    cur = db.conn.execute(
-        "SELECT video_id, AVG(views) AS avg_views FROM clips "
-        "WHERE status = 'uploaded' AND views IS NOT NULL "
-        "GROUP BY video_id"
-    )
-    return {row["video_id"]: float(row["avg_views"]) for row in cur.fetchall()}
+    by_video: dict[int, list[int]] = {}
+    for row in db.published():
+        if row["views"] is None:
+            continue
+        by_video.setdefault(row["video_id"], []).append(row["views"])
+    return {vid: sum(v) / len(v) for vid, v in by_video.items()}
 
 
 def order_pending(db, clips: list) -> list:
     """Ordena clips renderizados para subir primero los más prometedores.
 
-    Recibe filas ``sqlite3.Row`` con status='rendered'. Criterios, de mayor a
+    Recibe filas ``sqlite3.Row`` ya renderizadas. Criterios, de mayor a
     menor prioridad:
       1º rendimiento histórico del video fuente (``source_performance``, desc)
       2º ``clips.score`` (desc; None se trata como 0)."""
@@ -192,10 +182,7 @@ def learnings(db) -> list[str]:
     de gancho y origen (marcado por ti o elegido por el bot) para que ajustes
     hacia donde apunten los datos, no hacia donde apunte la corazonada.
     """
-    rows = db.conn.execute(
-        "SELECT title, start, end, marked, views, likes FROM clips "
-        "WHERE status = 'uploaded' AND views IS NOT NULL"
-    ).fetchall()
+    rows = [r for r in db.published() if r["views"] is not None]
     lines = ["", "Qué está funcionando:"]
     if len(rows) < 3:
         lines.append(f"  ({len(rows)} Short(s) con métricas; hacen falta unos "
@@ -230,10 +217,7 @@ def review_header(db) -> list[str]:
     justo en el momento en que más pesa ("los de 25 s rinden mejor" y empiezas
     a descartar clips largos sin base).
     """
-    rows = db.conn.execute(
-        "SELECT title, start, end, marked, views FROM clips "
-        "WHERE status = 'uploaded' AND views IS NOT NULL"
-    ).fetchall()
+    rows = [r for r in db.published() if r["views"] is not None]
     if len(rows) < MIN_SAMPLE:
         return [f"(aún sin datos para guiarte: {len(rows)} Short(s) publicados "
                 f"de ~{MIN_SAMPLE}; decide con tu criterio)"]
@@ -270,29 +254,23 @@ def build_report(db) -> str:
     # --- resumen por estado ---------------------------------------------
     lines.append("")
     lines.append("Videos por estado:")
-    vrows = db.conn.execute(
-        "SELECT status, COUNT(*) AS n FROM videos GROUP BY status ORDER BY status"
-    ).fetchall()
+    vrows = db.count_videos_by_status()
     if vrows:
-        for r in vrows:
-            lines.append(f"  {r['status']:<14} {r['n']}")
+        for status, n in vrows:
+            lines.append(f"  {status:<14} {n}")
     else:
         lines.append("  (ninguno)")
 
     lines.append("")
     lines.append("Clips por estado:")
-    crows = db.conn.execute(
-        "SELECT status, COUNT(*) AS n FROM clips GROUP BY status ORDER BY status"
-    ).fetchall()
+    crows = db.count_clips_by_status()
     if crows:
-        for r in crows:
-            lines.append(f"  {r['status']:<14} {r['n']}")
+        for status, n in crows:
+            lines.append(f"  {status:<14} {n}")
     else:
         lines.append("  (ninguno)")
 
-    to_review = db.conn.execute(
-        "SELECT COUNT(*) AS n FROM clips WHERE status = 'rendered' AND approved IS NULL"
-    ).fetchone()["n"]
+    to_review = len(db.clips_to_review())
     if to_review:
         lines.append(f"  {'por revisar':<14} {to_review}  (python -m aurclips review)")
 
@@ -300,10 +278,7 @@ def build_report(db) -> str:
     lines.append("")
     lines.append("Próximas publicaciones programadas:")
     now = datetime.now(timezone.utc)
-    sched = db.conn.execute(
-        "SELECT title, publish_at FROM clips "
-        "WHERE status = 'uploaded' AND publish_at IS NOT NULL"
-    ).fetchall()
+    sched = [r for r in db.published() if r["publish_at"] is not None]
     upcoming = []
     for r in sched:
         dt = _parse_iso(r["publish_at"])
@@ -320,10 +295,7 @@ def build_report(db) -> str:
     # --- top 5 por vistas -----------------------------------------------
     lines.append("")
     lines.append("Top 5 clips por vistas:")
-    top = db.conn.execute(
-        "SELECT title, views, likes FROM clips "
-        "WHERE views IS NOT NULL ORDER BY views DESC, id ASC LIMIT 5"
-    ).fetchall()
+    top = db.clips_with_views()[:5]
     if top:
         for r in top:
             likes = r["likes"] if r["likes"] is not None else 0
@@ -338,10 +310,7 @@ def build_report(db) -> str:
     lines += learnings(db)
 
     # --- clips con problemas --------------------------------------------
-    problems = db.conn.execute(
-        "SELECT id, status, title, error FROM clips "
-        "WHERE status IN ('failed', 'flagged') ORDER BY id"
-    ).fetchall()
+    problems = db.problem_clips()
     if problems:
         lines.append("")
         lines.append("Clips con problemas (fallidos / marcados):")

@@ -26,11 +26,11 @@ from .marks import load_marks
 
 
 class Clip(BaseModel):
-    start_s: float
-    end_s: float
+    start: float
+    end: float
     title: str
     description: str
-    hashtags: List[str]
+    tags: List[str]
     score: float = 0.0
     marked: bool = False
     text: str = ""  # transcripción completa del clip (contexto para el titulador)
@@ -53,7 +53,7 @@ def _write_metadata(cfg: Config, clips: list[Clip], video_title: str) -> None:
         if description:
             clip.description = description
         if hashtags:
-            clip.hashtags = hashtags
+            clip.tags = hashtags
 
 
 def select_clips(cfg: Config, transcript: dict, video_title: str,
@@ -124,11 +124,11 @@ def select_clips(cfg: Config, transcript: dict, video_title: str,
     # después manda la puntuación (el orden cronológico se restaura al final)
     candidates.sort(key=lambda c: (c.marked, c.score), reverse=True)
     clips = _to_clips(cfg, candidates[:n], video_title)
-    clips.sort(key=lambda c: c.start_s)
+    clips.sort(key=lambda c: c.start)
     print(f"  [selector] {len(clips)} clip(s) seleccionados")
     for c in clips:
         flag = " ★" if c.marked else ""
-        print(f"    - [{c.start_s:.0f}s-{c.end_s:.0f}s]{flag} {c.title}")
+        print(f"    - [{c.start:.0f}s-{c.end:.0f}s]{flag} {c.title}")
     return clips
 
 
@@ -141,8 +141,8 @@ def _to_clips(cfg: Config, candidates: list[Candidate],
         title, description, hashtags = make_metadata(cand, used)
         used.add(title.lower())
         # el LLM recibe la transcripción completa del clip, no la primera frase
-        clips.append(Clip(start_s=cand.start, end_s=cand.end, title=title,
-                          description=description, hashtags=hashtags,
+        clips.append(Clip(start=cand.start, end=cand.end, title=title,
+                          description=description, tags=hashtags,
                           score=cand.score, marked=cand.marked,
                           text=cand.text.strip()))
     _write_metadata(cfg, clips, video_title)

@@ -57,7 +57,7 @@ def scan_inbox(cfg: Config, db: State) -> int:
         # los clips cortos se usan completos como Shorts
         if duration is not None and duration < 3:
             print(f"  [inbox] {f.name}: demasiado corto ({duration:.1f}s), se omite")
-            db.add_video("local", source_id, f.stem, source_id, duration, status="skipped")
+            db.add_video("local", source_id, f.stem, source_id, duration, skipped=True)
             continue
         db.add_video("local", source_id, f.stem, source_id, duration)
         print(f"  [inbox] nuevo: {f.name}")
@@ -124,7 +124,7 @@ def check_channels(cfg: Config, db: State) -> int:
             result = download_video(cfg, vid)
             if result is None:
                 # registrarlo como omitido para no reintentar cada corrida
-                db.add_video("youtube", vid, status="skipped")
+                db.add_video("youtube", vid, skipped=True)
                 continue
             path, title, duration = result
             db.add_video("youtube", vid, title, path, duration)

@@ -42,7 +42,7 @@ def cmd_process(cfg: Config, db: State):
     from .select_clips import clip_words, select_clips
     from .transcribe import transcribe
 
-    videos = db.videos_with_status("new", "transcribed", "selected")
+    videos = db.videos_to_process()
     if not videos:
         print("[2/4] No hay videos pendientes por procesar")
         return
@@ -58,37 +58,37 @@ def cmd_process(cfg: Config, db: State):
         transcript_path = workdir / "transcript.json"
         try:
             # --- transcribir -------------------------------------------
-            if video["status"] == "new":
+            if db.needs_transcription(video):
                 print(f"[2/4] Transcribiendo: {title}")
                 transcript = transcribe(cfg, video["path"], transcript_path)
-                db.update_video(vid, status="transcribed")
+                db.video_transcribed(vid)
             else:
                 transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
 
             # --- seleccionar clips -------------------------------------
-            if video["status"] in ("new", "transcribed"):
+            if db.needs_selection(video):
                 print(f"[3/4] Seleccionando clips: {title}")
                 clips = select_clips(cfg, transcript, title, video["path"])
                 if not clips:
                     print("  sin clips útiles; video marcado como terminado")
-                    db.update_video(vid, status="done")
+                    db.video_finished(vid)
                     continue
                 added = 0
                 for i, c in enumerate(clips):
                     text = " ".join(
-                        w["word"] for w in clip_words(transcript, c.start_s, c.end_s)
+                        w["word"] for w in clip_words(transcript, c.start, c.end)
                     )
-                    status = "pending"
+                    flagged = False
                     # filtro de contenido no apto
                     if cfg.get("safety.enabled", True):
-                        flagged = check_text(cfg, text)
-                        if flagged:
+                        terms = check_text(cfg, text)
+                        if terms:
                             action = cfg.get("safety.action", "skip")
                             print(f"  [filtro] clip {c.title!r} contiene: "
-                                  f"{', '.join(flagged[:5])} -> {action}")
+                                  f"{', '.join(terms[:5])} -> {action}")
                             if action == "skip":
                                 continue
-                            status = "flagged"
+                            flagged = True
                     # limpieza de duplicados
                     if cfg.get("dedup.enabled", True):
                         dup, dup_id = is_duplicate(
@@ -97,28 +97,25 @@ def cmd_process(cfg: Config, db: State):
                             print(f"  [dedup] clip {c.title!r} es casi idéntico "
                                   f"al clip #{dup_id}; se omite")
                             continue
-                    db.add_clip(vid, i, c.start_s, c.end_s, c.title,
-                                c.description, c.hashtags, text=text,
-                                score=c.score, status=status, marked=c.marked)
+                    db.add_clip(vid, i, c, text, flagged=flagged)
                     added += 1
                 if not added:
                     print("  todos los clips fueron filtrados; video terminado")
-                    db.update_video(vid, status="done")
+                    db.video_finished(vid)
                     continue
-                db.update_video(vid, status="selected")
+                db.video_selected(vid)
 
             # --- renderizar --------------------------------------------
-            pending = [c for c in db.clips_for_video(vid) if c["status"] == "pending"]
-            for clip in pending:
+            for clip in db.clips_to_render(vid):
                 words = clip_words(transcript, clip["start"], clip["end"])
                 out = render_clip(cfg, video["path"], clip["start"], clip["end"],
                                   clip["title"], words, clip["id"])
-                db.update_clip(clip["id"], status="rendered", path=str(out))
-            db.update_video(vid, status="done")
+                db.clip_rendered(clip["id"], str(out))
+            db.video_finished(vid)
         except Exception as e:  # noqa: BLE001 — un video fallido no detiene el resto
             print(f"  [error] video {vid} ({title}): {e}")
             traceback.print_exc()
-            db.update_video(vid, status="failed", error=str(e)[:500])
+            db.video_failed(vid, str(e))
             from .notify import notify
             notify(cfg, "error", f"Falló el video '{title}': {str(e)[:200]}")
 
@@ -165,7 +162,7 @@ def cmd_review(cfg: Config, db: State):
 
     approved = discarded = 0
     for clip in clips:
-        tags = json.loads(clip["tags"] or "[]")
+        tags = db.clip_tags(clip)
         title, description = clip["title"], clip["description"]
         _show_clip(clip, tags)
         while True:
@@ -175,8 +172,7 @@ def cmd_review(cfg: Config, db: State):
                 print("\nRevisión interrumpida; el resto queda pendiente.")
                 return
             if choice in ("", "a", "ok"):
-                db.update_clip(clip["id"], approved=1, title=title,
-                               description=description, tags=json.dumps(tags))
+                db.clip_approved(clip["id"], title, description, tags)
                 approved += 1
                 break
             if choice == "t":
@@ -198,7 +194,7 @@ def cmd_review(cfg: Config, db: State):
                     print(f"   desc:    {description[:160]}")
                 continue
             if choice == "x":
-                db.update_clip(clip["id"], approved=0)
+                db.clip_discarded(clip["id"])
                 discarded += 1
                 print("   descartado (no se subirá)")
                 break
@@ -225,29 +221,25 @@ def cmd_auth(cfg: Config, db: State):
 
 def cmd_status(cfg: Config, db: State):
     print("== Videos ==")
-    rows = db.conn.execute(
-        "SELECT id, status, source, title, duration FROM videos ORDER BY id DESC LIMIT 20"
-    ).fetchall()
+    rows = db.recent_videos(20)
     if not rows:
         print("  (ninguno)")
     for r in rows:
         dur = f"{r['duration']:.0f}s" if r["duration"] else "?"
         print(f"  #{r['id']:<4} {r['status']:<12} [{r['source']}] {r['title'] or ''} ({dur})")
     print("\n== Clips ==")
-    rows = db.conn.execute(
-        "SELECT id, status, title, publish_at, youtube_id, marked, approved"
-        " FROM clips ORDER BY id DESC LIMIT 20"
-    ).fetchall()
+    rows = db.recent_clips(20)
     if not rows:
         print("  (ninguno)")
     review_on = cfg.get("review.enabled", True)
     for r in rows:
         extra = ""
-        if r["youtube_id"]:
+        situation = db.clip_situation(r, review_on)
+        if situation == "published":
             extra = f" -> https://youtu.be/{r['youtube_id']} @ {r['publish_at'] or '?'}"
-        elif r["approved"] == 0:
+        elif situation == "discarded":
             extra = " (descartado en revisión)"
-        elif review_on and r["status"] == "rendered" and r["approved"] is None:
+        elif situation == "awaiting_review":
             extra = " (por revisar)"
         star = "★" if r["marked"] else " "
         print(f"  #{r['id']:<4} {star} {r['status']:<10} {r['title'] or ''}{extra}")
@@ -264,16 +256,10 @@ def cmd_report(cfg: Config, db: State):
 
 def cmd_retry(cfg: Config, db: State):
     """Reencola videos y clips fallidos."""
-    n = 0
-    for video in db.videos_with_status("failed"):
-        transcript = cfg.work_dir / f"video_{video['id']}" / "transcript.json"
-        new_status = "transcribed" if transcript.exists() else "new"
-        db.update_video(video["id"], status=new_status, error=None)
-        n += 1
-    for clip in db.clips_with_status("failed"):
-        new_status = "rendered" if clip["path"] else "pending"
-        db.update_clip(clip["id"], status=new_status, error=None)
-        n += 1
+    def has_transcript(video_id: int) -> bool:
+        return (cfg.work_dir / f"video_{video_id}" / "transcript.json").exists()
+
+    n = db.requeue_failed(has_transcript)
     print(f"{n} elemento(s) reencolados. Corre 'run' para reintentarlos.")
 
 
@@ -282,8 +268,8 @@ def cmd_run(cfg: Config, db: State):
     cmd_ingest(cfg, db)
     cmd_process(cfg, db)
     cmd_upload(cfg, db)
-    uploaded = len(db.clips_with_status("uploaded"))
-    queued = len(db.clips_with_status("rendered"))
+    uploaded = db.count_published()
+    queued = db.count_queued()
     notify(cfg, "run",
            f"Corrida completa: {uploaded} clips subidos en total, {queued} en cola")
     print("\nCorrida completa.")

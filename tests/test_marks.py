@@ -77,7 +77,7 @@ def test_la_marca_hablada_gana_al_mejor_momento_heuristico(tmp_path):
     cfg = _cfg(tmp_path, clips_per_video=1)
     clips = select_clips(cfg, _con_gancho_y_marca(), "con marca", _video(tmp_path))
     assert len(clips) == 1
-    assert clips[0].start_s - 3 <= 180 <= clips[0].end_s + 3
+    assert clips[0].start - 3 <= 180 <= clips[0].end + 3
     assert clips[0].marked
 
 
@@ -97,7 +97,7 @@ def test_sin_exclusividad_la_heuristica_vuelve_a_competir(tmp_path):
     clips = select_clips(cfg, _con_gancho_y_marca(), "sin exclusividad",
                          _video(tmp_path))
     assert len(clips) == 2
-    assert any(c.start_s < 100 for c in clips)
+    assert any(c.start < 100 for c in clips)
     assert any(c.marked for c in clips)
 
 
@@ -109,7 +109,7 @@ def test_sin_marcas_todo_sigue_igual(tmp_path):
     tr["segments"][7] = _seg(70.0, 80.0, HOT_B)
     clips = select_clips(cfg, tr, "sin marcas", _video(tmp_path))
     assert len(clips) == 1
-    assert clips[0].start_s < 100
+    assert clips[0].start < 100
     assert not clips[0].marked
 
 
@@ -131,7 +131,7 @@ def test_la_marca_tolera_que_no_la_digas_igual(tmp_path):
     clips = select_clips(cfg, _con_frase("Esto es short."), "casi igual",
                          _video(tmp_path))
     assert clips[0].marked
-    assert clips[0].start_s - 3 <= 180 <= clips[0].end_s + 3
+    assert clips[0].start - 3 <= 180 <= clips[0].end + 3
 
 
 def test_hablar_de_shorts_no_marca(tmp_path):
@@ -141,7 +141,7 @@ def test_hablar_de_shorts_no_marca(tmp_path):
     clips = select_clips(cfg, _con_frase("No todo lo que grabo es un short."),
                          "mención suelta", _video(tmp_path))
     assert not clips[0].marked
-    assert clips[0].start_s < 100
+    assert clips[0].start < 100
 
 
 def test_umbral_de_parecido_exigente_solo_acepta_la_frase_literal(tmp_path):
@@ -252,7 +252,7 @@ def test_el_sidecar_marca_el_momento(tmp_path):
     tr["segments"][7] = _seg(70.0, 80.0, HOT_B)
     clips = select_clips(cfg, tr, "marca de archivo", video)
     assert len(clips) == 1
-    assert clips[0].start_s - 3 <= 180 <= clips[0].end_s + 3
+    assert clips[0].start - 3 <= 180 <= clips[0].end + 3
 
 
 def test_marcas_desactivadas_se_ignoran(tmp_path):
@@ -263,7 +263,7 @@ def test_marcas_desactivadas_se_ignoran(tmp_path):
     tr["segments"][6] = _seg(60.0, 70.0, HOT_A)
     tr["segments"][7] = _seg(70.0, 80.0, HOT_B)
     clips = select_clips(cfg, tr, "marcas apagadas", video)
-    assert clips[0].start_s < 100
+    assert clips[0].start < 100
 
 
 def test_formatos_de_tiempo_del_sidecar():

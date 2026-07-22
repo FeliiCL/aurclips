@@ -156,9 +156,7 @@ def is_duplicate(db: State, text: str, threshold: float) -> tuple[bool, int | No
         return False, None
     effective_threshold = threshold + 0.1 if len(tokens) < 8 else threshold
 
-    rows = db.conn.execute(
-        "SELECT id, text FROM clips WHERE text IS NOT NULL AND text != ''"
-    ).fetchall()
+    rows = db.texts_for_dedup()
     for row in rows:
         similarity = _jaccard(tokens, _tokenize(row["text"]))
         if similarity > effective_threshold:

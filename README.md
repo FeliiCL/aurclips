@@ -167,6 +167,17 @@ descartarlo**. Nada se sube sin ese visto bueno mientras `review.enabled` sea
 `true`. Son unos pocos clips al día: es el punto donde tu criterio entra al
 pipeline sin tocar código.
 
+> **Si un Short salió mal**: bórralo tú en YouTube Studio y devuelve su clip a
+> la cola de revisión. No hay comando —es a propósito— pero sí una transición,
+> con el `#id` que te muestra `status`:
+>
+> ```
+> .venv\Scripts\python -c "from aurclips.config import Config; from aurclips.state import State; State(Config().db_path).clip_unpublished(42)"
+> ```
+>
+> El hueco de publicación ya consumido no se devuelve: el siguiente Short se
+> programa igual para el día siguiente.
+
 ### Afinar con datos, no con intuición
 
 `report` trae vistas/likes de tus Shorts publicados y añade una sección **"Qué
@@ -245,7 +256,8 @@ van además a `logs\events.log`.
 
 > Con `review.enabled: true` la corrida automática **no publica sola**: deja los
 > clips esperando tu `review`. Si quieres el ciclo 100% desatendido, ponlo en
-> `false` sabiendo lo que eso implica.
+> `false` sabiendo lo que eso implica: sin revisión la cola solo mira el
+> progreso, así que también sube los clips que hubieras descartado antes.
 
 ## Notas y límites
 

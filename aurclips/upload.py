@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, time as dtime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -68,7 +67,7 @@ def _next_publish_slot(cfg: Config, db: State) -> datetime:
     if candidate < now + lead:
         candidate += timedelta(days=1)
 
-    last_raw = db.get_meta("last_publish_at")
+    last_raw = db.last_publish_at()
     if last_raw:
         last = datetime.fromisoformat(last_raw)
         if candidate <= last:
@@ -87,7 +86,7 @@ def upload_clip(cfg: Config, db: State, clip) -> str | None:
     youtube = build("youtube", "v3", credentials=creds)
 
     publish_at = _next_publish_slot(cfg, db)
-    tags = json.loads(clip["tags"] or "[]") + list(cfg.get("upload.extra_tags", []))
+    tags = db.clip_tags(clip) + list(cfg.get("upload.extra_tags", []))
     title = clip["title"][:93] + " #Shorts"
     description = (clip["description"] or "") + "\n\n" + " ".join(
         f"#{t.lstrip('#')}" for t in tags[:10]
@@ -115,7 +114,7 @@ def upload_clip(cfg: Config, db: State, clip) -> str | None:
         status, response = request.next_chunk()
     video_id = response["id"]
 
-    db.set_meta("last_publish_at", publish_at.isoformat())
+    db.set_last_publish_at(publish_at.isoformat())
     print(f"  [youtube] listo: https://youtu.be/{video_id} "
           f"(se publica {publish_at.strftime('%Y-%m-%d %H:%M %Z')})")
     return video_id
@@ -128,13 +127,13 @@ def upload_pending(cfg: Config, db: State) -> int:
         print("[4/4] Subida desactivada en config.yaml, se omite")
         return 0
     print("[4/4] Subiendo clips a YouTube...")
-    clips = db.clips_with_status("rendered")
     # con revisión activada nada sale sin tu visto bueno (aurclips review)
-    if cfg.get("review.enabled", True):
-        pending = [c for c in clips if c["approved"] is None]
-        clips = [c for c in clips if c["approved"] == 1]
+    require_review = cfg.get("review.enabled", True)
+    clips = db.clips_to_upload(require_review=require_review)
+    if require_review:
+        pending = len(db.clips_to_review())
         if pending:
-            print(f"  {len(pending)} clip(s) esperan revisión; corre "
+            print(f"  {pending} clip(s) esperan revisión; corre "
                   f"'python -m aurclips review' para aprobarlos")
     if not clips:
         print("  nada pendiente por subir")
@@ -160,16 +159,15 @@ def upload_pending(cfg: Config, db: State) -> int:
     for clip in clips:
         try:
             video_id = upload_clip(cfg, db, clip)
-            publish_at = db.get_meta("last_publish_at")
-            db.update_clip(clip["id"], status="uploaded", youtube_id=video_id,
-                           publish_at=publish_at)
+            publish_at = db.last_publish_at()
+            db.clip_uploaded(clip["id"], video_id, publish_at)
             notify(cfg, "uploaded",
                    f"'{clip['title']}' programado para {publish_at} "
                    f"— https://youtu.be/{video_id}")
             uploaded += 1
         except Exception as e:  # noqa: BLE001 — seguir con los demás clips
             print(f"  [error] clip {clip['id']}: {e}")
-            db.update_clip(clip["id"], status="failed", error=str(e)[:500])
+            db.clip_failed(clip["id"], str(e))
             notify(cfg, "error", f"Falló la subida del clip '{clip['title']}': "
                                  f"{str(e)[:200]}")
     print(f"  {uploaded} clip(s) subidos y programados")

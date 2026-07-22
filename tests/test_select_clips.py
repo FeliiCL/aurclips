@@ -63,7 +63,7 @@ def test_la_densidad_manda_cuando_el_tope_es_mas_alto(tmp_path):
     clips = select_clips(cfg, _transcript(960), "video largo", NO_VIDEO)
     assert len(clips) == 4
     for a, b in zip(clips, clips[1:]):
-        assert b.start_s >= a.end_s + MIN_GAP_S
+        assert b.start >= a.end + MIN_GAP_S
 
 
 HOT = "cuidado este secreto es increible ¿nadie lo sabia? ¡brutal de verdad!"
@@ -77,7 +77,7 @@ def test_umbral_de_calidad_descarta_candidatos_flojos(tmp_path):
     tr["segments"][30] = _seg(300.0, 310.0, HOT)  # minuto 5
     clips = select_clips(cfg, tr, "video con un solo momento bueno", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s <= 300 < clips[0].end_s
+    assert clips[0].start <= 300 < clips[0].end
 
 
 def test_sin_umbral_se_alcanza_el_objetivo_de_densidad(tmp_path):
@@ -95,8 +95,8 @@ def test_video_corto_se_usa_completo(tmp_path):
     cfg = _cfg(tmp_path)
     clips = select_clips(cfg, _transcript(30), "clip corto", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s == 0.0
-    assert abs(clips[0].end_s - 30) < 1e-6
+    assert clips[0].start == 0.0
+    assert abs(clips[0].end - 30) < 1e-6
 
 
 def test_el_tope_recorta_la_densidad(tmp_path):
@@ -150,7 +150,7 @@ def test_arrancar_con_muletilla_pierde(tmp_path):
     )
     clips = select_clips(cfg, tr, "muletilla vs directo", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s >= 170
+    assert clips[0].start >= 170
 
 
 def test_relleno_de_stopwords_pierde_contra_contenido(tmp_path):
@@ -168,7 +168,7 @@ def test_relleno_de_stopwords_pierde_contra_contenido(tmp_path):
     )
     clips = select_clips(cfg, tr, "relleno vs contenido", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s >= 170
+    assert clips[0].start >= 170
 
 
 def test_cerrar_la_idea_gana(tmp_path):
@@ -183,7 +183,7 @@ def test_cerrar_la_idea_gana(tmp_path):
     )
     clips = select_clips(cfg, tr, "abierta vs cerrada", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s >= 170
+    assert clips[0].start >= 170
 
 
 def test_el_final_cae_en_cierre_de_frase(tmp_path):
@@ -201,8 +201,8 @@ def test_el_final_cae_en_cierre_de_frase(tmp_path):
                              " concretos datos casos practicos reales grandes utiles")
     clips = select_clips(cfg, tr, "cola sin cerrar", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s == 60.0
-    assert clips[0].end_s == 80.0
+    assert clips[0].start == 60.0
+    assert clips[0].end == 80.0
 
 
 def test_sin_corte_valido_se_conserva_el_final(tmp_path):
@@ -217,8 +217,8 @@ def test_sin_corte_valido_se_conserva_el_final(tmp_path):
                              " metodos probados casos utiles")
     clips = select_clips(cfg, tr, "sin corte valido", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s == 60.0
-    assert clips[0].end_s == 80.0
+    assert clips[0].start == 60.0
+    assert clips[0].end == 80.0
 
 
 # --- calibración por perfil / pesos -------------------------------------
@@ -235,7 +235,7 @@ def test_sin_peso_al_cierre_gana_el_gancho(tmp_path):
     cfg = _cfg(tmp_path, weights={"closes": 0.0})
     clips = select_clips(cfg, _con_zonas(ENGANCHA, CIERRA), "gancho", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].start_s == 60.0
+    assert clips[0].start == 60.0
 
 
 def test_subir_el_peso_del_cierre_cambia_al_ganador(tmp_path):
@@ -243,7 +243,7 @@ def test_subir_el_peso_del_cierre_cambia_al_ganador(tmp_path):
     cfg = _cfg(tmp_path, weights={"closes": 0.9})
     clips = select_clips(cfg, _con_zonas(ENGANCHA, CIERRA), "cierre", NO_VIDEO)
     assert len(clips) == 1
-    assert clips[0].end_s == 200.0
+    assert clips[0].end == 200.0
 
 
 def test_perfil_desconocido_no_rompe(tmp_path):
