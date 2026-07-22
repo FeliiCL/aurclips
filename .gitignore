@@ -1,0 +1,16 @@
+.venv/
+.env
+data/
+logs/
+tools/
+credentials/
+__pycache__/
+*.pyc
+# Added by code-review-graph
+.code-review-graph/
+# tooling local de desarrollo (no se publica)
+.claude/
+.mcp.json
+.scratch/
+docs/agents/
+CLAUDE.md

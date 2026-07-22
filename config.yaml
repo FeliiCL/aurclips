@@ -1,0 +1,126 @@
+# ============================================================
+# Configuración de aurclips
+# ============================================================
+
+# Canales de YouTube a vigilar (URL del canal o de su pestaña /videos)
+channels:
+  # - "https://www.youtube.com/@MiCanal/videos"
+
+# Cuántos videos recientes revisar por canal en cada corrida
+channel_scan_limit: 5
+
+# Duración mínima (segundos) para descargar un video de un canal
+# (solo aplica a canales; la carpeta inbox acepta clips de cualquier duración)
+min_source_duration: 300
+
+# Calidad máxima de descarga
+max_download_height: 1080
+
+# ------------------------------------------------------------
+# Transcripción (faster-whisper, corre local y gratis)
+# ------------------------------------------------------------
+whisper:
+  model: "medium"       # tiny / base / small / medium / large-v3 (más grande = mejor)
+                        # con GPU NVIDIA, "medium" o "large-v3" van rápido y transcriben mejor
+  language: null        # null = autodetectar; o "es", "en", etc.
+  device: "auto"        # auto = GPU si hay, si no CPU (con respaldo automático)
+  compute_type: "auto"  # auto elige lo mejor según el dispositivo
+
+# ------------------------------------------------------------
+# Selección de clips (100% local, sin API keys)
+# ------------------------------------------------------------
+selection:
+  engine: "auto"        # heuristic = solo análisis local de audio/texto
+                        # ollama    = un LLM local elige y escribe los títulos
+                        # auto      = usa Ollama si está corriendo, si no heurística
+  clips_per_video: 3    # tope máximo de Shorts por video largo
+  minutes_per_short: 4  # densidad: ~1 Short por cada N minutos de video
+                        # (el número real = duración/N, acotado por el tope;
+                        #  0 = desactivado: usa siempre el tope)
+  quality_floor: 0.55   # descarta candidatos bajo esta fracción de la
+                        # puntuación del mejor (0 = desactivado); mejor
+                        # pocos Shorts buenos que rellenar el cupo
+  min_clip_seconds: 15
+  max_clip_seconds: 59
+  ollama:
+    url: "http://localhost:11434"
+    model: "llama3.1:8b"
+
+# ------------------------------------------------------------
+# Edición / render
+# ------------------------------------------------------------
+render:
+  subtitles: true       # subtítulos virales quemados (estilo Hormozi)
+  words_per_caption: 3  # palabras por frase en pantalla (aparecen una a una)
+  font: "Anton"         # se descarga a tools/fonts; si falta usa Arial Black
+  font_size: 112        # sobre lienzo de 1080x1920 (rango viral: 80-120)
+  outline: 10           # grosor del contorno negro
+  base_color: "#FFFFFF"
+  highlight_colors: ["#FFD93D", "#39FF14"]  # palabra clave (rota amarillo/verde)
+  caption_position: 0.70  # altura del texto (0.70 = tercio bajo, libre de UI)
+  tighten_silences: true  # jump cuts: recorta pausas muertas
+  max_pause: 1.5          # pausas más largas que esto (seg) se recortan
+                          # (1.0 para charla pura; 1.5-2.0 en gaming conserva acción visual)
+  crf: 20
+  preset: "veryfast"
+
+# ------------------------------------------------------------
+# Encuadre inteligente
+# ------------------------------------------------------------
+crop:
+  face_tracking: true   # detecta el rostro y centra el recorte vertical en él
+
+# ------------------------------------------------------------
+# Filtro de contenido y duplicados
+# ------------------------------------------------------------
+safety:
+  enabled: true
+  action: "skip"        # skip = descartar el clip | flag = guardarlo marcado para revisión
+  strict: false         # false = permite groserías comunes (monetizables, normales en gaming)
+                        # true  = también filtra groserías (canales de marca/infantiles)
+  extra_words: []       # palabras adicionales a bloquear (además de la lista integrada)
+
+dedup:
+  enabled: true
+  similarity: 0.8       # umbral de similitud (0-1) para considerar un clip duplicado
+
+# ------------------------------------------------------------
+# Límites por corrida (control de carga y escalado)
+# ------------------------------------------------------------
+limits:
+  max_videos_per_run: 3   # videos largos procesados por corrida
+  max_uploads_per_run: 5  # subidas por corrida (la cuota de YouTube da ~6/día)
+
+# ------------------------------------------------------------
+# Métricas y alertas
+# ------------------------------------------------------------
+stats:
+  enabled: true           # consulta vistas/likes de los Shorts publicados
+
+alerts:
+  discord_webhook: null   # URL de webhook de Discord para avisos (opcional)
+  notify_on: ["error", "uploaded"]  # eventos que generan aviso
+
+# ------------------------------------------------------------
+# Publicación en YouTube
+# ------------------------------------------------------------
+upload:
+  enabled: false            # MODO BETA: cambia a true cuando quieras publicar de verdad
+  privacy: "private"        # se sube en privado y YouTube lo publica solo en publish_time
+  publish_time: "19:00"     # hora local de publicación diaria
+  timezone: null            # null = zona horaria del sistema; o "America/Mexico_City", etc.
+  min_lead_hours: 1         # margen mínimo entre subir y publicar
+  category_id: "24"         # 24 = Entertainment, 20 = Gaming, 22 = People & Blogs
+  extra_tags: ["shorts"]
+
+# ------------------------------------------------------------
+# Rutas (relativas a la raíz del proyecto)
+# ------------------------------------------------------------
+paths:
+  data: "data"
+  inbox: "data/inbox"           # deja aquí videos locales para procesar
+  downloads: "data/downloads"
+  work: "data/work"
+  output: "data/output"
+  credentials: "credentials"    # client_secrets.json y token de YouTube
+  ffmpeg: "tools/ffmpeg/bin"    # carpeta con ffmpeg.exe y ffprobe.exe

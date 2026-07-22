@@ -1,0 +1,4 @@
+# Dependencias solo de desarrollo (tests). Instalar con:
+#   .venv\Scripts\python -m pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0
