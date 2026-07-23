@@ -1,6 +1,7 @@
 """CLI de aurclips.
 
 Uso:
+    python -m aurclips clip RUTA # recortar una grabación y ya (sin pipeline)
     python -m aurclips run       # pipeline completo (ingesta -> proceso -> subida)
     python -m aurclips mark      # marcar momentos en vivo mientras grabas
     python -m aurclips review    # aprobar o corregir títulos antes de subir
@@ -283,6 +284,28 @@ def cmd_run(cfg: Config, db: State):
                f"(python -m aurclips review)")
 
 
+def cmd_clip(cfg: Config, path: str | None, out: str | None,
+             max_clips: int | None):
+    """Modo recortador: una grabación entra, salen recortes sueltos.
+
+    El único comando que no abre la base: no hay progreso ni criterio que
+    guardar. Por eso recibe la config y no el par (cfg, db).
+    """
+    from .clipper import clip_recording
+
+    if not path:
+        print("Falta la grabación: python -m aurclips clip RUTA_DEL_VIDEO")
+        sys.exit(2)
+    if max_clips is not None and max_clips < 1:
+        print("--clips es un tope: tiene que ser 1 o más")
+        sys.exit(2)
+    try:
+        clip_recording(cfg, path, out, max_clips)
+    except (FileNotFoundError, OSError) as e:
+        print(f"[error] {e}")
+        sys.exit(1)
+
+
 COMMANDS = {
     "run": cmd_run,
     "mark": cmd_mark,
@@ -300,12 +323,21 @@ COMMANDS = {
 def main():
     parser = argparse.ArgumentParser(prog="aurclips", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=COMMANDS.keys())
+    parser.add_argument("command", choices=["clip", *COMMANDS])
     parser.add_argument("name", nargs="?",
-                        help="nombre de la grabación (solo para 'mark')")
+                        help="ruta de la grabación (para 'clip') o nombre de "
+                             "la sesión (para 'mark')")
+    parser.add_argument("--out", metavar="CARPETA",
+                        help="dónde dejar los recortes (solo 'clip')")
+    parser.add_argument("--clips", type=int, metavar="N",
+                        help="tope de recortes en esta corrida (solo 'clip')")
     args = parser.parse_args()
-    cfg, db = _load()
     try:
+        # 'clip' no toca la base: se carga solo la config
+        if args.command == "clip":
+            cmd_clip(Config(), args.name, args.out, args.clips)
+            return
+        cfg, db = _load()
         if args.command == "mark":
             cmd_mark(cfg, db, args.name)
         else:

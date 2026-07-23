@@ -40,6 +40,14 @@ _Avoid_: señal, tag
 Un clip que ya está en YouTube, publicado o programado.
 _Avoid_: publicación, video subido
 
+**Recorte suelto**:
+Un video vertical producido sin entrar al pipeline: sale del modo recortador,
+no existe en la base y por eso no tiene ni progreso ni criterio. No aparece en
+`status`, no espera revisión y no consume hueco de publicación. Es el mismo
+material que un **Clip** —misma selección, mismo render— pero sin el ciclo de
+vida que hace de un clip un **Short**.
+_Avoid_: exportación, corte rápido
+
 ### Ciclo de vida
 
 El estado de un clip son dos cosas independientes que no hay que confundir.

@@ -25,6 +25,22 @@ class Config:
             node = node[part]
         return node
 
+    def override(self, dotted: str, value) -> None:
+        """Pisa una clave solo en esta corrida. No toca config.yaml.
+
+        Para mandos de línea de comandos que valen para una ejecución y no
+        deben quedarse escritos (el tope de recortes de `clip`, por ejemplo).
+        """
+        parts = dotted.split(".")
+        node = self.raw
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
+        node[parts[-1]] = value
+
     # --- rutas -----------------------------------------------------------
     def _dir(self, key: str, default: str) -> Path:
         p = ROOT / self.get(f"paths.{key}", default)

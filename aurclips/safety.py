@@ -7,15 +7,16 @@ de cada clip antes de renderizarlo o subirlo (ver config: sección `safety` y
 - check_text():   busca palabras/frases que suelen desmonetizar o restringir
                    un video en YouTube (groserías fuertes, violencia gráfica,
                    sexual explícito, drogas duras, odio).
-- is_duplicate():  compara el texto contra los clips ya guardados en la base
-                   (columna clips.text) para no publicar el mismo contenido
-                   más de una vez.
+- find_duplicate(): compara el texto contra los textos ya aceptados para no
+                   publicar el mismo contenido más de una vez. is_duplicate()
+                   es el mismo criterio leyendo los clips de la base.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 
 from .config import Config
 from .state import State
@@ -143,22 +144,35 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / union if union else 0.0
 
 
-def is_duplicate(db: State, text: str, threshold: float) -> tuple[bool, int | None]:
-    """Compara el texto contra la columna clips.text de la base.
+def find_duplicate(text: str, known: Iterable[tuple[int, str]],
+                   threshold: float) -> tuple[bool, int | None]:
+    """Compara un texto contra los textos ya aceptados. La política, sin origen.
 
-    Devuelve (True, id_del_clip_parecido) si la similitud de Jaccard sobre
-    conjuntos de tokens normalizados supera threshold; si no, (False, None).
-    Los textos cortos (menos de 8 tokens) dan más falsos positivos, así que
-    para ellos se exige threshold + 0.1.
+    ``known`` son pares (id, texto): en el pipeline salen de la base y el id es
+    el del clip; en el modo recortador salen de la propia corrida y el id es la
+    posición del recorte suelto.
+
+    Devuelve (True, id_del_parecido) si la similitud de Jaccard sobre conjuntos
+    de tokens normalizados supera threshold; si no, (False, None). Los textos
+    cortos (menos de 8 tokens) dan más falsos positivos, así que para ellos se
+    exige threshold + 0.1.
     """
     tokens = _tokenize(text)
     if not tokens:
         return False, None
     effective_threshold = threshold + 0.1 if len(tokens) < 8 else threshold
 
-    rows = db.texts_for_dedup()
-    for row in rows:
-        similarity = _jaccard(tokens, _tokenize(row["text"]))
+    for known_id, known_text in known:
+        similarity = _jaccard(tokens, _tokenize(known_text))
         if similarity > effective_threshold:
-            return True, row["id"]
+            return True, known_id
     return False, None
+
+
+def is_duplicate(db: State, text: str, threshold: float) -> tuple[bool, int | None]:
+    """Como find_duplicate, contra la columna clips.text de la base."""
+    return find_duplicate(
+        text,
+        ((row["id"], row["text"]) for row in db.texts_for_dedup()),
+        threshold,
+    )

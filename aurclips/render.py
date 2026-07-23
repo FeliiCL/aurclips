@@ -21,10 +21,27 @@ PAD_IN = 0.10        # aire antes de la primera palabra de un bloque
 PAD_OUT = 0.25       # aire después de la última palabra de un bloque
 
 
-def _safe_name(text: str, max_len: int = 60) -> str:
+def safe_name(text: str, max_len: int = 60) -> str:
     text = re.sub(r"[^\w\sáéíóúüñÁÉÍÓÚÜÑ-]", "", text, flags=re.UNICODE)
     text = re.sub(r"\s+", "_", text.strip())
     return text[:max_len] or "clip"
+
+
+def clip_paths(cfg: Config, clip_id: int, title: str,
+               out_dir: Path | None = None,
+               work_name: str | None = None) -> tuple[Path, Path]:
+    """(carpeta de trabajo, ruta del mp4) de un clip. Crea ambas carpetas.
+
+    Sin ``out_dir`` ni ``work_name`` produce las rutas del pipeline, que
+    numera por id de clip. El modo recortador pasa las suyas: los recortes
+    sueltos van a una carpeta por grabación y numeran por posición dentro de
+    la corrida, así que un id repetido no pisa nada.
+    """
+    workdir = cfg.work_dir / (work_name or f"clip_{clip_id}")
+    workdir.mkdir(parents=True, exist_ok=True)
+    destination = out_dir or cfg.output_dir
+    destination.mkdir(parents=True, exist_ok=True)
+    return workdir, destination / f"{clip_id:04d}_{safe_name(title)}.mp4"
 
 
 def _resolve_font(cfg: Config, workdir: Path) -> str:
@@ -96,11 +113,15 @@ def _remap_words(words: list[dict],
 # ---------------------------------------------------------------------------
 
 def render_clip(cfg: Config, video_path: str, start: float, end: float,
-                title: str, words: list[dict], clip_id: int) -> Path:
-    """Corta y renderiza un clip vertical 1080x1920. Devuelve la ruta del mp4."""
-    workdir = cfg.work_dir / f"clip_{clip_id}"
-    workdir.mkdir(parents=True, exist_ok=True)
-    out_path = cfg.output_dir / f"{clip_id:04d}_{_safe_name(title)}.mp4"
+                title: str, words: list[dict], clip_id: int,
+                out_dir: Path | None = None,
+                work_name: str | None = None) -> Path:
+    """Corta y renderiza un clip vertical 1080x1920. Devuelve la ruta del mp4.
+
+    ``out_dir`` y ``work_name`` son para quien no es el pipeline: sin ellos
+    las rutas son exactamente las de siempre (ver clip_paths).
+    """
+    workdir, out_path = clip_paths(cfg, clip_id, title, out_dir, work_name)
     duration = end - start
 
     # --- jump cuts -------------------------------------------------------
