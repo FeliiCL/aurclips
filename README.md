@@ -1,6 +1,7 @@
 # 🎬 aurclips
 
 [![tests](https://github.com/feliivk/aurclips/actions/workflows/ci.yml/badge.svg)](https://github.com/feliivk/aurclips/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/aurclips)](https://pypi.org/project/aurclips/)
 
 Convierte videos largos en Shorts verticales con subtítulos, **completamente
 local**. Corre en **Windows, Linux y macOS**.
@@ -83,15 +84,15 @@ Ambos crean un entorno virtual e instalan el comando `aurclips`. Si tienes GPU
 NVIDIA (Windows/Linux), el setup detecta `nvidia-smi` y ofrece el soporte CUDA;
 en CPU también funciona (baja `whisper.model` a `small`).
 
-¿Prefieres instalarlo como un paquete más, sin el script? Es un proyecto Python
-estándar:
+¿Prefieres instalarlo como un paquete más, sin clonar nada? Está en
+[PyPI](https://pypi.org/project/aurclips/):
 
 ```bash
-pipx install git+https://github.com/feliivk/aurclips     # aislado, comando global
+pipx install aurclips        # aislado, comando global
 # o, dentro de tu propio entorno:
-pip install git+https://github.com/feliivk/aurclips
+pip install aurclips
 # con soporte GPU NVIDIA (Windows/Linux x86_64):
-pip install "aurclips[cuda] @ git+https://github.com/feliivk/aurclips"
+pip install "aurclips[cuda]"
 ```
 
 Instalado así, aurclips guarda `config.yaml` y los datos en las carpetas de
