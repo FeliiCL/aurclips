@@ -149,7 +149,7 @@ fácil"*. Es la palanca más grande que tienes y no toca código:
 - **O repasando después**: `aurclips mark grabacion.mp4` abre el video y cada
   Enter marca el momento que está sonando. Para lo que grabaste sin marcar y
   para el material descargado. También acepta una URL de YouTube — el flujo de
-  curación completo es `mark <URL>` y luego `clip <URL>`, con una sola
+  completo para material ajeno es `mark <URL>` y luego `clip <URL>`, con una sola
   descarga. (Necesita [mpv](https://mpv.io): `winget`/`brew`/`apt install mpv`
   — solo este modo lo usa.)
 
@@ -174,7 +174,7 @@ aurclips retry     # reencolar lo que falló
 `watch` es el modo demonio: deja caer una grabación al inbox (o que OBS grabe
 directo ahí — no se procesa nada a medio escribir) y sale procesada en
 minutos. Un ciclo fallido no lo mata, Ctrl+C guarda y sale ordenado, y lo
-fallido transitorio se reintenta solo.
+fallido transitorio se reencola solo.
 
 A diferencia del modo recortador, esto sí lleva una base de estado: cada clip
 tiene progreso (pendiente, renderizado, subido) y criterio tuyo (sin revisar,

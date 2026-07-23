@@ -401,11 +401,7 @@ class State:
                 (youtube_id, publish_at, clip_id),
             )
             if publish_at:
-                self._conn.execute(
-                    "INSERT INTO meta (key, value) VALUES (?, ?)"
-                    " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    (_LAST_PUBLISH_KEY, publish_at),
-                )
+                self._upsert_meta(_LAST_PUBLISH_KEY, publish_at)
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -458,12 +454,17 @@ class State:
         n = 0
         for video in self._conn.execute(
                 "SELECT id FROM videos WHERE status = 'failed' ORDER BY id").fetchall():
-            if self.video_has_clips(video["id"]):
-                status = "selected"
-            elif has_transcript(video["id"]):
-                status = "transcribed"
-            else:
+            if not has_transcript(video["id"]):
+                # sin transcripción manda 'new' AUNQUE haya clips: 'selected'
+                # sin transcript.json sería el bucle failed->selected->failed
+                # eterno (el render necesita el transcript). Con 'new' se
+                # retranscribe y la guarda de clips existentes evita la
+                # re-selección igual.
                 status = "new"
+            elif self.video_has_clips(video["id"]):
+                status = "selected"
+            else:
+                status = "transcribed"
             self._set_video(video["id"], status=status, error=None)
             n += 1
         for clip in self._conn.execute(
@@ -475,6 +476,14 @@ class State:
         return n
 
     # --- meta genérica -----------------------------------------------------
+    def _upsert_meta(self, key: str, value: str) -> None:
+        """El upsert de meta SIN commit: para componer dentro de transacciones."""
+        self._conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
     def meta_get(self, key: str) -> str | None:
         """Valor de la tabla meta, o None. Para cadencias del modo watch."""
         cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
@@ -482,11 +491,7 @@ class State:
         return row["value"] if row else None
 
     def meta_set(self, key: str, value: str) -> None:
-        self._conn.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?)"
-            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
+        self._upsert_meta(key, value)
         self._conn.commit()
 
     # --- hueco de publicación ---------------------------------------------
@@ -499,9 +504,4 @@ class State:
         return row["value"] if row else None
 
     def set_last_publish_at(self, value: str):
-        self._conn.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?)"
-            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (_LAST_PUBLISH_KEY, value),
-        )
-        self._conn.commit()
+        self.meta_set(_LAST_PUBLISH_KEY, value)

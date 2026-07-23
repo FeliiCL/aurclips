@@ -173,8 +173,13 @@ watch:
                         # aplica también a la corrida diaria
   channel_minutes: 60   # cadencia de revisión de canales en watch (es red:
                         # no se martillea YouTube cada ciclo)
-  retry_hours: 12       # cadencia del reintento automático de lo fallido
+  retry_hours: 12       # cadencia del reencolado automático de lo fallido
                         # (0 = solo con `aurclips retry` manual)
+  upload_hours: 6       # cadencia de las rondas de subida en watch. Cada ronda
+                        # sube hasta limits.max_uploads_per_run; la cuota de
+                        # YouTube da ~6 subidas/día, así que
+                        # (24/upload_hours) * max_uploads_per_run conviene
+                        # mantenerlo por debajo de eso
 
 # ------------------------------------------------------------
 # Límites por corrida (control de carga y escalado)

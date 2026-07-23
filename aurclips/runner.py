@@ -29,6 +29,32 @@ def cadence_due(last_iso: str | None, every_hours: float,
     return (now - last).total_seconds() >= every_hours * 3600
 
 
+def run_in_progress(log_dir: Path) -> bool:
+    """¿Hay una corrida o un watch trabajando AHORA? Sondea el lock.
+
+    Sin esto, doctor/status juzgarían el log de la sesión viva — que todavía
+    no tiene su línea de cierre — y acusarían "INCOMPLETA" a un demonio que
+    está perfectamente sano."""
+    lock_path = log_dir / "run.lock"
+    if not lock_path.exists():
+        return False
+    with single_instance(lock_path) as acquired:
+        return not acquired
+
+
+def last_run_line(log_dir: Path) -> str:
+    """La línea de estado que comparten status y doctor."""
+    if run_in_progress(log_dir):
+        return "en marcha ahora mismo"
+    info = last_run_info(log_dir)
+    if info is None:
+        return "(ninguna todavía)"
+    name, ok = info
+    if ok:
+        return f"{name} — completa"
+    return f"{name} — INCOMPLETA; revisa logs/{name}"
+
+
 def last_run_info(log_dir: Path) -> tuple[str, bool] | None:
     """(log más reciente, ¿terminó bien?) de la última corrida o sesión watch.
 

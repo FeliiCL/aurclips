@@ -93,7 +93,7 @@ aurclips mark mi-grabacion.mp4
 
 También acepta una URL de YouTube: descarga el video a `data/downloads` (una
 sola vez) y abre el repaso. El `clip` posterior con la misma URL reutiliza la
-descarga — así se cura material que no está en tu disco:
+descarga — así se marca y recorta material que no está en tu disco:
 
 ```bash
 aurclips mark "https://youtube.com/watch?v=..."   # bajar y marcar

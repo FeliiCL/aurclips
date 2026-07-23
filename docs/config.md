@@ -116,7 +116,8 @@ recuerde las anteriores.
 | `watch.poll_seconds` | Cada cuánto mira el inbox el demonio | `60` |
 | `watch.settle_seconds` | Un archivo cuenta como completo si nadie lo tocó en esto; protege también la corrida diaria de grabaciones a medias | `60` |
 | `watch.channel_minutes` | Cadencia de revisión de canales en watch (no se martillea YouTube cada ciclo) | `60` |
-| `watch.retry_hours` | Cadencia del reintento automático de lo fallido (`0` = solo manual) | `12` |
+| `watch.retry_hours` | Cadencia del reencolado automático de lo fallido (`0` = solo manual) | `12` |
+| `watch.upload_hours` | Cadencia de las rondas de subida en watch — el tope `max_uploads_per_run` es por ronda, y la cuota de YouTube da ~6 subidas/día | `6` |
 
 ## Límites, métricas y alertas
 

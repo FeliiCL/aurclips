@@ -55,6 +55,17 @@ def test_requeue_de_video_con_clips_va_a_selected():
     assert video["status"] == "selected"
 
 
+def test_requeue_de_video_con_clips_pero_sin_transcript_va_a_new():
+    """El caso que era un bucle eterno: 'selected' sin transcript.json revienta
+    el render, vuelve a failed, y el reencolado automático lo repite cada 12h
+    para siempre. Sin transcripción manda 'new' aunque haya clips — la guarda
+    de re-selección evita los huérfanos igual."""
+    db, vid = _db_with_video("failed")
+    db.add_clip(vid, 0, _clip(), "texto")
+    db.requeue_failed(lambda _: False, lambda _: True)  # transcript perdido
+    assert db.recent_videos(1)[0]["status"] == "new"
+
+
 def test_requeue_de_video_sin_clips_va_a_transcribed_o_new():
     db, vid = _db_with_video("failed")
     db.requeue_failed(lambda _: True, lambda _: True)

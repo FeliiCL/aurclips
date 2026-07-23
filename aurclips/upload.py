@@ -87,7 +87,7 @@ def _next_publish_slot(cfg: Config, db: State) -> datetime:
     return candidate
 
 
-def upload_clip(cfg: Config, db: State, clip) -> str | None:
+def upload_clip(cfg: Config, db: State, clip) -> tuple[str, str]:
     """Sube un clip como privado con publicación programada. Devuelve el video id."""
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload

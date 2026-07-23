@@ -79,10 +79,17 @@ def _is_settled(path: Path, min_age_seconds: float, now: float | None = None) ->
     try:
         if now - path.stat().st_mtime < min_age_seconds:
             return False
-        if os.name == "nt":
-            path.rename(path)  # falla (sharing violation) si sigue abierto
     except OSError:
-        return False
+        return False  # desapareció mientras mirábamos: no está listo
+    if os.name == "nt":
+        try:
+            path.rename(path)  # falla (sharing violation) si sigue abierto
+        except OSError as e:
+            if getattr(e, "winerror", None) in (32, 33):  # abierto por otro
+                return False
+            # cualquier otro fallo del probe (ACL sin permiso de rename, un
+            # antivirus) NO puede vetar el archivo para siempre: el mtime ya
+            # dijo que está quieto, y ese es el juez
     return True
 
 
@@ -229,15 +236,10 @@ def url_download(cfg: Config, url: str) -> Path:
     recortador y el repaso, no del pipeline (ADR-0002). El sidecar de marcas
     caerá junto a la descarga, como con cualquier archivo.
     """
-    # primero sin red: si la URL trae el id y la descarga ya está, no hay
-    # nada que preguntar — funciona entero sin internet
-    local_id = local_youtube_id(url)
-    if local_id:
-        existing = find_downloaded(cfg, local_id)
-        if existing is not None:
-            print(f"  [url] ya descargado: {existing.name}")
-            return existing
-    video_id = local_id or _probe_url_id(cfg, url)
+    # el id sale de la propia URL si es un formato estándar (sin red); solo
+    # las URLs raras preguntan a yt-dlp. Con la descarga ya en disco, el
+    # verbo entero funciona sin internet.
+    video_id = local_youtube_id(url) or _probe_url_id(cfg, url)
     if not video_id:
         raise ValueError(f"no pude leer la URL (¿URL válida? ¿hay internet?): {url}")
     existing = find_downloaded(cfg, video_id)
@@ -293,12 +295,12 @@ def ingest(cfg: Config, db: State) -> int:
     n = 0
     # cada fuente aislada: que el inbox explote no impide revisar canales, y
     # viceversa — el demonio no puede morir por una fase de ingesta
-    for fase in (scan_inbox, check_channels):
+    for phase in (scan_inbox, check_channels):
         try:
-            n += fase(cfg, db)
+            n += phase(cfg, db)
         except Exception as e:  # noqa: BLE001
-            print(f"  [error] {fase.__name__} falló: {e}")
+            print(f"  [error] {phase.__name__} falló: {e}")
             from .notify import notify
-            notify(cfg, "error", f"Ingesta ({fase.__name__}) falló: {str(e)[:200]}")
+            notify(cfg, "error", f"Ingesta ({phase.__name__}) falló: {str(e)[:200]}")
     print(f"  {n} video(s) nuevo(s)")
     return n

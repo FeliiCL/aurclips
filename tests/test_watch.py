@@ -49,6 +49,25 @@ def test_un_archivo_abierto_para_escritura_no_entra(tmp_path):
     assert _is_settled(f, min_age_seconds=60)  # cerrado: ya puede entrar
 
 
+def test_un_fallo_ajeno_del_probe_no_veta_el_archivo(tmp_path, monkeypatch):
+    """Un antivirus o una ACL sin permiso de rename NO pueden bloquear un
+    archivo para siempre: solo 'abierto por otro proceso' (winerror 32/33)
+    cuenta; para lo demás, el mtime quieto es el juez."""
+    import pathlib
+
+    f = tmp_path / "con_acl_rara.mp4"
+    f.write_bytes(b"x")
+    old = time.time() - 3600
+    os.utime(f, (old, old))
+
+    denied = OSError("acceso denegado por politica")
+    denied.winerror = 5  # no es sharing violation
+    monkeypatch.setattr(pathlib.Path, "rename",
+                        lambda self, target: (_ for _ in ()).throw(denied))
+    monkeypatch.setattr(os, "name", "nt", raising=False)
+    assert _is_settled(f, min_age_seconds=60)
+
+
 def test_scan_inbox_no_registra_lo_que_aun_se_escribe(tmp_path):
     doc = {"paths": {"inbox": str(tmp_path / "inbox")},
            "watch": {"settle_seconds": 60}}
@@ -121,6 +140,76 @@ def test_keep_going_falso_deja_los_videos_en_cola(tmp_path):
     # nada se procesó ni se marcó fallido: la cola quedó intacta
     assert len(db.videos_to_process()) == 2
     assert all(v["status"] == "new" for v in db.recent_videos())
+
+
+# --- la subida en watch va con cadencia, no por ciclo ------------------------
+
+def test_watch_no_sube_en_cada_ciclo(tmp_path, monkeypatch):
+    """Cada ciclo subiendo convertiría max_uploads_per_run (tope por corrida
+    DIARIA) en un tope por minuto y reventaría la cuota de YouTube."""
+    from types import SimpleNamespace
+
+    from aurclips import upload as upload_mod
+    from aurclips.__main__ import _watch_cycle
+
+    doc = {"paths": {"data": str(tmp_path / "data"),
+                     "inbox": str(tmp_path / "inbox")},
+           "upload": {"enabled": True}, "review": {"enabled": False},
+           "watch": {"retry_hours": 0, "upload_hours": 6}}
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    cfg = Config(tmp_path / "config.yaml")
+    db = State(":memory:")
+    vid = db.add_video("local", "v.mp4", "v", "v.mp4", 100.0)
+    db.video_finished(vid)
+    clip_id = db.add_clip(vid, 0, SimpleNamespace(
+        start=0.0, end=30.0, title="t", description="", tags=[],
+        score=1.0, marked=False), "texto")
+    db.clip_rendered(clip_id, "salida.mp4")
+
+    rondas = []
+    monkeypatch.setattr(upload_mod, "upload_pending",
+                        lambda c, d: rondas.append(1) or 0)
+
+    _watch_cycle(cfg, db, lambda: True)
+    _watch_cycle(cfg, db, lambda: True)  # mismo "día": no toca otra ronda
+    assert len(rondas) == 1
+
+
+# --- lo transitorio no se registra como decisión -----------------------------
+
+def test_una_descarga_fallida_no_queda_vetada(monkeypatch, tmp_path):
+    """Un corte de red en la corrida nocturna no puede blacklistear el video:
+    no se registra nada y la próxima corrida lo intenta de nuevo."""
+    from aurclips import ingest as ingest_mod
+
+    doc = {"channels": ["https://youtube.com/@canal/videos"],
+           "paths": {"downloads": str(tmp_path / "descargas"),
+                     "logs": str(tmp_path / "logs")}}
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
+    cfg = Config(tmp_path / "config.yaml")
+    db = State(":memory:")
+
+    monkeypatch.setattr(ingest_mod, "list_channel_videos",
+                        lambda c, u: ["vid_transitorio"])
+    monkeypatch.setattr(ingest_mod, "download_video",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            RuntimeError("sin conexión a YouTube")))
+    ingest_mod.check_channels(cfg, db)
+    assert not db.video_known("vid_transitorio")  # libre para reintentarse
+
+
+# --- el demonio vivo no es una corrida incompleta ----------------------------
+
+def test_con_el_lock_tomado_el_estado_dice_en_marcha(tmp_path):
+    from aurclips.runner import last_run_line, single_instance
+
+    (tmp_path / "watch_2026-07-23_120000.log").write_text(
+        "vigilando...", encoding="utf-8")  # sesión viva: sin línea de cierre
+    with single_instance(tmp_path / "run.lock") as acquired:
+        assert acquired
+        assert last_run_line(tmp_path) == "en marcha ahora mismo"
+    # soltado el lock, el log sin cierre sí es una corrida incompleta
+    assert "INCOMPLETA" in last_run_line(tmp_path)
 
 
 # --- rotación por patrón -----------------------------------------------------
