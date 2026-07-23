@@ -3,7 +3,8 @@
 Uso:
     python -m aurclips clip RUTA # recortar una grabación y ya (sin pipeline)
     python -m aurclips run       # pipeline completo (ingesta -> proceso -> subida)
-    python -m aurclips mark      # marcar momentos en vivo mientras grabas
+    python -m aurclips mark      # marcar en vivo mientras grabas
+    python -m aurclips mark RUTA # repaso: ver la grabación y marcar con Enter
     python -m aurclips review    # aprobar o corregir títulos antes de subir
     python -m aurclips ingest    # solo buscar/descargar contenido nuevo
     python -m aurclips process   # solo transcribir + seleccionar + renderizar
@@ -114,9 +115,22 @@ def cmd_process(cfg: Config, db: State):
             notify(cfg, "error", f"Falló el video '{title}': {str(e)[:200]}")
 
 
-def cmd_mark(cfg: Config, db: State, name: str | None = None):
-    """Sesión de marcado en vivo: cada Enter marca el instante actual."""
-    from .marks import record_session
+def cmd_mark(cfg: Config, name: str | None = None):
+    """Marcar: en vivo (nombre de sesión) o repasando (ruta de un video).
+
+    Si el argumento es un archivo que existe, es un repaso: se abre en mpv y
+    cada Enter marca el momento que está sonando. Si no, es la sesión en vivo
+    de siempre. Ninguna de las dos toca la base.
+    """
+    from .marks import record_session, review_session
+
+    if name and Path(name).is_file():
+        try:
+            review_session(name)
+        except FileNotFoundError as e:  # mpv ausente: una línea, no una traza
+            print(f"[error] {e}")
+            sys.exit(1)
+        return
     record_session(cfg, name)
 
 
@@ -340,23 +354,23 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["clip", *COMMANDS])
     parser.add_argument("name", nargs="?",
-                        help="ruta de la grabación (para 'clip') o nombre de "
-                             "la sesión (para 'mark')")
+                        help="ruta de la grabación (para 'clip', o para 'mark' "
+                             "en modo repaso) o nombre de la sesión en vivo")
     parser.add_argument("--out", metavar="CARPETA",
                         help="dónde dejar los recortes (solo 'clip')")
     parser.add_argument("--clips", type=int, metavar="N",
                         help="tope de recortes en esta corrida (solo 'clip')")
     args = parser.parse_args()
     try:
-        # 'clip' no toca la base: se carga solo la config
+        # 'clip' y 'mark' no tocan la base: se carga solo la config
         if args.command == "clip":
             cmd_clip(Config(), args.name, args.out, args.clips)
             return
-        cfg, db = _load()
         if args.command == "mark":
-            cmd_mark(cfg, db, args.name)
-        else:
-            COMMANDS[args.command](cfg, db)
+            cmd_mark(Config(), args.name)
+            return
+        cfg, db = _load()
+        COMMANDS[args.command](cfg, db)
     except KeyboardInterrupt:
         print("\nInterrumpido.")
         sys.exit(130)

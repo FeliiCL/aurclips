@@ -38,9 +38,10 @@ elegir y editar pasa todo en tu máquina.
 
 ## Qué NO hace
 
-- **No adivina bien sin tu ayuda.** Sin marcar nada al grabar, cuenta con **~1
-  recorte bueno por grabación**: el filtro de calidad prefiere quedarse corto
-  antes que rellenar. Marcar cambia eso por completo.
+- **No adivina bien sin tu ayuda.** Sin marcas, cuenta con **~1 recorte bueno
+  por grabación**: el filtro de calidad prefiere quedarse corto antes que
+  rellenar. Marcar cambia eso por completo — y no exige grabar distinto:
+  también puedes marcar después, **repasando la grabación**.
 - **No hay magia de IA en la selección.** Es una heurística simple y a propósito
   ([ADR-0001](docs/adr/0001-extremos-apretados-centro-simple.md)): no modela
   arcos narrativos ni persigue la viralidad. El criterio lo pones tú.
@@ -144,6 +145,10 @@ fácil"*. Es la palanca más grande que tienes y no toca código:
   por parecido) ni marcar todos los videos.
 - **O por timestamps**: un `<video>.marks.txt` al lado de la grabación, que
   puedes escribir con el hotkey de tu grabadora o con `aurclips mark`.
+- **O repasando después**: `aurclips mark grabacion.mp4` abre el video y cada
+  Enter marca el momento que está sonando. Para lo que grabaste sin marcar y
+  para el material descargado de canales. (Necesita [mpv](https://mpv.io):
+  `winget`/`brew`/`apt install mpv` — solo este modo lo usa.)
 
 Guía completa: [Grabar en beats](docs/grabar-en-beats.md).
 

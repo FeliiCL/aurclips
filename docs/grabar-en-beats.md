@@ -81,6 +81,43 @@ compitan esas ventanas: el resto del material se ignora. Si prefieres que la
 heurística siga proponiendo por su cuenta, ponlo en `false` y las marcas pasan
 a ser un empujón fuerte en vez de un filtro.
 
+## Marcar repasando (después de grabar)
+
+No todo se marca en vivo: a veces grabaste sin pensar en el recorte, y el
+material descargado de canales directamente no es tuyo. Para eso está el
+**repaso** — ver la grabación y marcar con una tecla:
+
+```bash
+aurclips mark mi-grabacion.mp4
+```
+
+Se abre el video en el reproductor y el terminal queda en modo sesión:
+
+- **Enter** marca el momento que está sonando. Pausar también vale: la marca
+  cae donde dejaste el cursor, con la precisión que quieras.
+- **u** deshace la última marca de esta sesión (las que ya existían no se
+  tocan).
+- **Ctrl+C** o cerrar el reproductor termina y guarda.
+
+Las marcas van al mismo `<video>.marks.txt` de siempre, junto al video, y las
+que ya hubiera —de la voz, del hotkey o de un repaso anterior— se conservan:
+puedes marcar en varias pasadas. Avanza, retrocede y cambia la velocidad con
+los controles normales del reproductor; una hora de material se repasa en
+minutos.
+
+Una marca de repaso pesa lo mismo que cualquier otra: manda sobre la
+puntuación y queda exenta del piso de calidad. El flujo completo sin pipeline
+es repasar + recortar:
+
+```bash
+aurclips mark partida.mp4    # ver y marcar
+aurclips clip partida.mp4    # los momentos marcados son los recortes
+```
+
+El repaso necesita **[mpv](https://mpv.io)** (solo este modo lo usa): `winget
+install mpv` en Windows, `brew install mpv` en macOS, `apt install mpv` en
+Linux.
+
 ## Qué NO tienes que hacer
 
 - **Guionizar.** Un beat es una idea con principio y final, no un texto leído.

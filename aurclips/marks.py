@@ -267,6 +267,55 @@ def load_marks(cfg, video_path: str | Path, transcript: dict) -> Marks:
 
 
 # ---------------------------------------------------------------------------
+# Lógica de sesión: eventos de marcado -> contenido del sidecar
+# ---------------------------------------------------------------------------
+
+# Dos Enter a menos de esto (s) son el mismo momento: el nervioso no duplica.
+MIN_MARK_GAP = 1.0
+
+
+class MarkingSession:
+    """Acumula marcas de una sesión sobre las preexistentes del sidecar.
+
+    Es la lógica del repaso (y de cualquier sesión de marcado), sin transporte:
+    quien tenga los tiempos —mpv, el reloj de la sesión en vivo, un test— llama
+    a :meth:`mark`/:meth:`undo` y al final escribe :meth:`sidecar_text`. Las
+    preexistentes son intocables: deshacer solo retira lo de esta sesión.
+    """
+
+    def __init__(self, existing: list[float] | None = None,
+                 min_gap: float = MIN_MARK_GAP):
+        self._existing = sorted(existing or [])
+        self._session: list[float] = []
+        self._min_gap = min_gap
+
+    def mark(self, t: float) -> float | None:
+        """Registra una marca en ``t``. None si se fundió con una cercana."""
+        if any(abs(t - other) < self._min_gap for other in self.all_marks()):
+            return None
+        self._session.append(t)
+        return t
+
+    def undo(self) -> float | None:
+        """Retira la última marca de la sesión; None si no hay ninguna."""
+        return self._session.pop() if self._session else None
+
+    def all_marks(self) -> list[float]:
+        """Unión ordenada de preexistentes y sesión."""
+        return sorted(self._existing + self._session)
+
+    def sidecar_text(self, name: str) -> str:
+        """El contenido del sidecar: cabecera + un tiempo por línea (MM:SS).
+
+        Mismo formato que la sesión en vivo — ASCII editable en cualquier
+        editor y siempre parseable por :func:`file_marks`.
+        """
+        lines = [f"# marcas de {name} - generadas por aurclips mark"]
+        lines += [f"{int(t) // 60:02d}:{int(t) % 60:02d}" for t in self.all_marks()]
+        return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # Sesión de marcado en vivo (comando `mark`)
 # ---------------------------------------------------------------------------
 
@@ -289,20 +338,108 @@ def record_session(cfg, name: str | None = None) -> Path:
     print("(arranca a grabar AHORA: el tiempo cero es este momento)\n")
 
     t0 = time.monotonic()
-    times: list[float] = []
+    session = MarkingSession()
     try:
         while True:
             input()
-            t = time.monotonic() - t0
-            times.append(t)
-            print(f"  marca {len(times):>2} en {int(t) // 60:02d}:{int(t) % 60:02d}")
+            t = session.mark(time.monotonic() - t0)
+            if t is not None:
+                n = len(session.all_marks())
+                print(f"  marca {n:>2} en {int(t) // 60:02d}:{int(t) % 60:02d}")
     except (KeyboardInterrupt, EOFError):
         print()
 
-    # ASCII puro: el sidecar se abre y edita en cualquier editor de Windows
-    lines = [f"# marcas de {name} - generadas por aurclips mark"]
-    lines += [f"{int(t) // 60:02d}:{int(t) % 60:02d}" for t in times]
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"{len(times)} marca(s) guardadas en {target}")
+    target.write_text(session.sidecar_text(name), encoding="utf-8")
+    print(f"{len(session.all_marks())} marca(s) guardadas en {target}")
     print(f"Deja tu grabación como {cfg.inbox_dir / (name + '.mp4')} y corre 'run'.")
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Repaso (comando `mark` con la ruta de un video)
+# ---------------------------------------------------------------------------
+
+def _mmss(t: float) -> str:
+    return f"{int(t) // 60:02d}:{int(t) % 60:02d}"
+
+
+def _stdin_lines():
+    """Cola alimentada por un hilo que lee líneas del terminal.
+
+    Leer en un hilo permite que el loop principal también vigile si el
+    reproductor sigue abierto: cerrar mpv termina la sesión aunque nadie
+    vuelva a tocar el teclado.
+    """
+    import queue
+    import sys
+    import threading
+
+    lines: queue.Queue[str] = queue.Queue()
+
+    def reader():
+        try:
+            for line in sys.stdin:
+                lines.put(line)
+        except (ValueError, OSError):
+            pass  # stdin cerrado: el loop principal sigue vigilando a mpv
+
+    threading.Thread(target=reader, daemon=True).start()
+    return lines
+
+
+def review_session(video_path: str | Path) -> Path:
+    """Repaso: ver la grabación en mpv y marcar con Enter el momento que suena.
+
+    La marca cae donde está el cursor de reproducción — pausar también vale.
+    Las marcas preexistentes del sidecar se conservan; al terminar (Ctrl+C o
+    cerrar el reproductor) todo queda guardado junto al video.
+    """
+    import queue
+
+    from .player import MpvPlayer, find_mpv
+
+    video = Path(video_path)
+    mpv = find_mpv()
+    existing = file_marks(video)
+    session = MarkingSession(existing)
+    target = sidecar_path(video)
+
+    print(f"Repasando: {video.name}")
+    if existing:
+        print(f"  ({len(existing)} marca(s) preexistentes; se conservan)")
+    print("  Enter  -> marca el momento que está sonando (pausar también vale)")
+    print("  u      -> deshacer la última marca de esta sesión")
+    print("  Ctrl+C o cerrar el reproductor -> terminar y guardar\n")
+
+    player = MpvPlayer(mpv, video)
+    lines = _stdin_lines()
+    try:
+        while player.alive():
+            try:
+                line = lines.get(timeout=0.3)
+            except queue.Empty:
+                continue
+            command = line.strip().lower()
+            if command == "u":
+                undone = session.undo()
+                if undone is None:
+                    print("  nada que deshacer en esta sesión")
+                else:
+                    print(f"  deshecha la marca de {_mmss(undone)}")
+            elif command == "":
+                t = player.playback_time()
+                if t is None:
+                    print("  no pude leer la posición (¿mpv sigue abriendo?)")
+                elif session.mark(t) is None:
+                    print(f"  ya hay una marca en {_mmss(t)}; no se duplica")
+                else:
+                    print(f"  marca {len(session.all_marks()):>2} en {_mmss(t)}")
+            # cualquier otra entrada se ignora sin ruido
+    except KeyboardInterrupt:
+        print()
+    finally:
+        player.close()
+
+    target.write_text(session.sidecar_text(video.stem), encoding="utf-8")
+    print(f"{len(session.all_marks())} marca(s) guardadas en {target}")
     return target

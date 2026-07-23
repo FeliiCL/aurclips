@@ -32,9 +32,19 @@ Un tramo de la grabación que la heurística puntuó y que todavía no es un cli
 _Avoid_: candidato, propuesta
 
 **Marca**:
-Un momento que el creador señaló mientras grababa, por voz o por archivo. Manda
-sobre cualquier puntuación.
+Un momento que el creador señaló: por voz al grabar, por archivo/hotkey, o
+repasando la grabación después. Manda sobre cualquier puntuación, venga de
+donde venga.
 _Avoid_: señal, tag
+
+**Repaso**:
+Ver la grabación para marcar momentos con una tecla; la marca cae en el
+instante que está sonando. Sirve para material grabado sin marcar y para lo
+descargado de canales. No confundir con **Revisión**: el repaso pasa antes de
+seleccionar (le da tu criterio al selector), la revisión pasa después de
+renderizar (tu criterio sobre clips ya hechos).
+_Cómo_: `aurclips mark <ruta-del-video>`.
+_Avoid_: re-watch, curación, replay
 
 **Short**:
 Un clip que ya está en YouTube, publicado o programado.
