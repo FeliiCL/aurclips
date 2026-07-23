@@ -11,15 +11,31 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 
-def prune_run_logs(log_dir: Path, keep: int = 30) -> int:
-    """Conserva los `keep` logs de corrida más nuevos; borra el resto.
+def cadence_due(last_iso: str | None, every_hours: float,
+                now: datetime) -> bool:
+    """¿Ya toca? True si nunca corrió, o si pasaron ``every_hours`` desde
+    ``last_iso``. Un timestamp ilegible cuenta como "nunca": mejor un trabajo
+    de más que una cadencia muerta para siempre."""
+    if not last_iso:
+        return True
+    try:
+        last = datetime.fromisoformat(last_iso)
+    except ValueError:
+        return True
+    return (now - last).total_seconds() >= every_hours * 3600
 
-    Los nombres son ``run_<fecha>.log`` con fecha ordenable (YYYY-MM-DD_HHMM),
-    así que ordenar por nombre ordena por antigüedad. Devuelve cuántos borró."""
-    logs = sorted(log_dir.glob("run_*.log"))
+
+def prune_run_logs(log_dir: Path, keep: int = 30,
+                   pattern: str = "run_*.log") -> int:
+    """Conserva los `keep` logs más nuevos del patrón; borra el resto.
+
+    Los nombres llevan fecha ordenable (YYYY-MM-DD_HHMM...), así que ordenar
+    por nombre ordena por antigüedad. Devuelve cuántos borró."""
+    logs = sorted(log_dir.glob(pattern))
     doomed = logs[:-keep] if keep else logs
     removed = 0
     for old in doomed:

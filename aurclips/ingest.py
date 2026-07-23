@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -62,14 +63,43 @@ def probe_duration(cfg: Config, path: str) -> float | None:
         return None
 
 
+def _is_settled(path: Path, min_age_seconds: float, now: float | None = None) -> bool:
+    """¿El archivo terminó de escribirse? mtime con antigüedad mínima.
+
+    OBS graba durante horas DIRECTO al inbox: registrar el archivo al primer
+    vistazo transcribiría el contenido a medias y, como la ruta queda como
+    'conocida', la versión completa no se revisitaría jamás — la sesión se
+    perdería en silencio. Un archivo que no se toca hace ``min_age_seconds``
+    ya no lo está escribiendo nadie. En Windows, señal extra: renombrar sobre
+    sí mismo falla mientras la grabadora conserve el handle de escritura.
+    """
+    import time
+    now = time.time() if now is None else now
+    try:
+        if now - path.stat().st_mtime < min_age_seconds:
+            return False
+        if os.name == "nt":
+            path.rename(path)  # falla (sharing violation) si sigue abierto
+    except OSError:
+        return False
+    return True
+
+
 def scan_inbox(cfg: Config, db: State) -> int:
-    """Registra videos locales dejados en la carpeta inbox."""
+    """Registra videos locales dejados en la carpeta inbox.
+
+    Un archivo aún inestable (grabándose o copiándose) no se registra en este
+    ciclo, sin ruido: el siguiente escaneo lo toma ya completo.
+    """
+    settle = cfg.get("watch.settle_seconds", 60)
     found = 0
     for f in sorted(cfg.inbox_dir.iterdir()):
         if f.suffix.lower() not in VIDEO_EXTS:
             continue
         source_id = str(f.resolve())
         if db.video_known(source_id):
+            continue
+        if not _is_settled(f, settle):
             continue
         duration = probe_duration(cfg, source_id)
         # a diferencia de los canales, el inbox acepta cualquier duración:

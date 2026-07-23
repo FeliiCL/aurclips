@@ -164,6 +164,19 @@ dedup:
   similarity: 0.8       # umbral de similitud (0-1) para considerar un clip duplicado
 
 # ------------------------------------------------------------
+# Modo continuo (aurclips watch)
+# ------------------------------------------------------------
+watch:
+  poll_seconds: 60      # cada cuánto mira el inbox el demonio
+  settle_seconds: 60    # un archivo cuenta como completo si nadie lo tocó en
+                        # esto (OBS grabando al inbox no se procesa a medias);
+                        # aplica también a la corrida diaria
+  channel_minutes: 60   # cadencia de revisión de canales en watch (es red:
+                        # no se martillea YouTube cada ciclo)
+  retry_hours: 12       # cadencia del reintento automático de lo fallido
+                        # (0 = solo con `aurclips retry` manual)
+
+# ------------------------------------------------------------
 # Límites por corrida (control de carga y escalado)
 # ------------------------------------------------------------
 limits:

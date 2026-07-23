@@ -3,6 +3,7 @@
 Uso:
     python -m aurclips clip RUTA # recortar una grabación y ya (sin pipeline)
     python -m aurclips run       # pipeline completo (ingesta -> proceso -> subida)
+    python -m aurclips watch     # modo continuo: vigila el inbox y procesa solo
     python -m aurclips mark      # marcar en vivo mientras grabas
     python -m aurclips mark RUTA # repaso: ver la grabación y marcar con Enter
 
@@ -41,7 +42,7 @@ def cmd_ingest(cfg: Config, db: State):
     ingest(cfg, db)
 
 
-def cmd_process(cfg: Config, db: State):
+def cmd_process(cfg: Config, db: State, keep_going=None):
     from .render import render_clip
     from .safety import screen_clip
     from .select_clips import clip_words, select_clips
@@ -57,6 +58,11 @@ def cmd_process(cfg: Config, db: State):
               f"(limits.max_videos_per_run)")
         videos = videos[:max_videos]
     for video in videos:
+        if keep_going is not None and not keep_going():
+            # apagado ordenado del demonio: se respeta la transición en curso
+            # y el resto queda en cola — el estado resumible hace el resto
+            print("  [proceso] parada solicitada; lo pendiente queda en cola")
+            break
         vid = video["id"]
         title = video["title"] or f"video_{vid}"
         workdir = cfg.work_dir / f"video_{vid}"
@@ -283,15 +289,20 @@ def cmd_report(cfg: Config, db: State):
     print(build_report(db))
 
 
-def cmd_retry(cfg: Config, db: State):
-    """Reencola videos y clips fallidos."""
+def _requeue_failed(cfg: Config, db: State) -> int:
+    """Reencola lo fallido comprobando qué artefactos sobreviven en disco."""
     def has_transcript(video_id: int) -> bool:
         return (cfg.work_dir / f"video_{video_id}" / "transcript.json").exists()
 
     def render_exists(path: str) -> bool:
         return Path(path).exists()
 
-    n = db.requeue_failed(has_transcript, render_exists)
+    return db.requeue_failed(has_transcript, render_exists)
+
+
+def cmd_retry(cfg: Config, db: State):
+    """Reencola videos y clips fallidos."""
+    n = _requeue_failed(cfg, db)
     print(f"{n} elemento(s) reencolados. Corre 'run' para reintentarlos.")
 
 
@@ -349,6 +360,127 @@ def _run_pipeline(cfg: Config, db: State):
                f"(python -m aurclips review)")
 
 
+def _watch_cycle(cfg: Config, db: State, keep_going) -> bool:
+    """Un ciclo del demonio. Devuelve True si hubo trabajo.
+
+    Silencioso cuando no hay nada: un ciclo vacío no imprime cabeceras ni
+    toca la red. Los canales y el reintento automático van en sus propias
+    cadencias (tabla meta), no en cada vuelta del loop.
+    """
+    from datetime import datetime
+
+    from .ingest import check_channels, scan_inbox
+    from .notify import notify
+    from .runner import cadence_due
+
+    did = False
+    now = datetime.now()
+
+    # lo fallido transitorio (red caída, archivo a medias) se cura solo, con
+    # cadencia acotada para que lo permanente no se reintente en bucle
+    retry_hours = cfg.get("watch.retry_hours", 12)
+    if retry_hours and cadence_due(db.meta_get("last_auto_retry"), retry_hours, now):
+        db.meta_set("last_auto_retry", now.isoformat())
+        requeued = _requeue_failed(cfg, db)
+        if requeued:
+            print(f"[watch] reintento automático: {requeued} elemento(s) reencolados")
+            did = True
+
+    # los canales son red: se miran cada watch.channel_minutes, no cada ciclo
+    channel_minutes = cfg.get("watch.channel_minutes", 60)
+    if (cfg.get("channels") or []) and cadence_due(
+            db.meta_get("last_channel_check"), channel_minutes / 60, now):
+        db.meta_set("last_channel_check", now.isoformat())
+        if check_channels(cfg, db):
+            did = True
+
+    # el inbox es disco local: barato, cada ciclo
+    if scan_inbox(cfg, db):
+        did = True
+
+    if db.videos_to_process():
+        before_review = len(db.clips_to_review())
+        cmd_process(cfg, db, keep_going)
+        did = True
+        fresh = len(db.clips_to_review()) - before_review
+        if fresh > 0 and cfg.get("review.enabled", True):
+            notify(cfg, "review",
+                   f"{fresh} clip(s) nuevos esperando tu revisión "
+                   f"(aurclips review)")
+
+    if keep_going() and cfg.get("upload.enabled", False):
+        require_review = cfg.get("review.enabled", True)
+        if db.clips_to_upload(require_review=require_review):
+            from .upload import upload_pending
+            if upload_pending(cfg, db):
+                did = True
+    return did
+
+
+def cmd_watch(cfg: Config, db: State):
+    """Modo continuo: vigila el inbox y procesa lo que llegue, sin parar.
+
+    El demonio del pipeline. Comparte el lock con `run` (si la corrida diaria
+    está en marcha, el ciclo se salta), un ciclo fallido nunca mata el loop
+    (backoff exponencial acotado + evento de error), y SIGINT/SIGTERM piden
+    parada ordenada: se termina la transición en curso, se guarda, y el
+    estado resumible retoma en el siguiente arranque.
+    """
+    import signal
+    import time
+    from datetime import datetime
+
+    from .notify import notify
+    from .runner import prune_run_logs, single_instance, tee_output
+
+    poll = max(5, int(cfg.get("watch.poll_seconds", 60)))
+    stopping = False
+
+    def _request_stop(signum, frame):
+        nonlocal stopping
+        if not stopping:
+            print("\n[watch] parada solicitada; se termina lo que está en curso...")
+        stopping = True
+
+    for sig_name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, sig_name, None)
+        if sig is not None:
+            signal.signal(sig, _request_stop)
+
+    def keep_going() -> bool:
+        return not stopping
+
+    logs_dir = cfg.logs_dir
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    with tee_output(logs_dir / f"watch_{stamp}.log"):
+        print(f"aurclips watch: vigilando {cfg.inbox_dir} "
+              f"(ciclo cada {poll}s; Ctrl+C para terminar)")
+        backoff = poll
+        while not stopping:
+            with single_instance(logs_dir / "run.lock") as acquired:
+                if not acquired:
+                    print("[watch] otra corrida tiene el lock; este ciclo se salta")
+                else:
+                    try:
+                        _watch_cycle(cfg, db, keep_going)
+                        backoff = poll
+                    except Exception as e:  # noqa: BLE001 — un ciclo fallido
+                        # jamás termina el demonio: traza al log, evento, y
+                        # backoff para no martillear un fallo persistente
+                        traceback.print_exc()
+                        notify(cfg, "error",
+                               f"Ciclo de watch falló: {str(e)[:200]}")
+                        backoff = min(backoff * 2, 3600)
+                        print(f"[watch] ciclo fallido; reintento en {backoff}s")
+            waited = 0.0
+            while not stopping and waited < backoff:
+                time.sleep(0.5)
+                waited += 0.5
+        print("[watch] detenido; el estado queda guardado y el pipeline "
+              "retoma donde quedó.")
+    prune_run_logs(logs_dir, keep=10, pattern="watch_*.log")
+
+
 def cmd_clip(cfg: Config, path: str | None, out: str | None,
              max_clips: int | None):
     """Modo recortador: una grabación (ruta o URL) entra, salen recortes.
@@ -377,6 +509,7 @@ def cmd_clip(cfg: Config, path: str | None, out: str | None,
 
 COMMANDS = {
     "run": cmd_run,
+    "watch": cmd_watch,
     "review": cmd_review,
     "ingest": cmd_ingest,
     "process": cmd_process,

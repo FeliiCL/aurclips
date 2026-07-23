@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aurclips.watch</string>
+
+    <!-- Ajusta TU_USUARIO y la ruta al checkout. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/TU_USUARIO/aurclips/.venv/bin/aurclips</string>
+        <string>watch</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/TU_USUARIO/aurclips</string>
+
+    <!-- Demonio: arranca al iniciar sesión y se relanza si muere. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/TU_USUARIO/aurclips/logs/watch.launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/TU_USUARIO/aurclips/logs/watch.launchd.err.log</string>
+</dict>
+</plist>

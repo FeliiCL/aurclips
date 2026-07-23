@@ -474,6 +474,21 @@ class State:
             n += 1
         return n
 
+    # --- meta genérica -----------------------------------------------------
+    def meta_get(self, key: str) -> str | None:
+        """Valor de la tabla meta, o None. Para cadencias del modo watch."""
+        cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row else None
+
+    def meta_set(self, key: str, value: str) -> None:
+        self._conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._conn.commit()
+
     # --- hueco de publicación ---------------------------------------------
     def last_publish_at(self) -> str | None:
         """El último hueco del calendario que se consumió, si hubo alguno."""

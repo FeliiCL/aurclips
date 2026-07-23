@@ -1,0 +1,17 @@
+[Unit]
+Description=aurclips watch: vigila el inbox y procesa contenido en continuo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Ajusta la ruta a tu checkout. %h = tu carpeta de usuario.
+WorkingDirectory=%h/aurclips
+ExecStart=%h/aurclips/.venv/bin/aurclips watch
+Restart=on-failure
+RestartSec=30
+# SIGTERM pide parada ordenada; un render en curso tarda minutos en terminar
+TimeoutStopSec=600
+
+[Install]
+WantedBy=default.target

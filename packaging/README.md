@@ -1,9 +1,29 @@
 # Automatización por sistema operativo
 
-La corrida diaria de aurclips (`aurclips run`) genera los Shorts y los sube en
-privado con fecha programada; **YouTube los publica solo**. Lo único que hay que
-automatizar es disparar `aurclips run` una vez al día. El comando ya deja su
-propio log y se protege contra solapes, así que el scheduler solo lo invoca.
+Dos formas de dejar aurclips trabajando solo, combinables:
+
+- **Corrida diaria** (`aurclips run`): el scheduler la dispara una vez al día.
+- **Modo continuo** (`aurclips watch`): un demonio que vigila el inbox y
+  procesa lo que llegue, en minutos en vez de al día siguiente. Comparte el
+  lock con `run` (no se pisan), un ciclo fallido no lo mata (backoff + evento
+  de error), y SIGTERM/Ctrl+C paran ordenado: termina lo que está en curso,
+  guarda, y al re-arrancar retoma lo pendiente.
+
+Ambos dejan su propio log con rotación y se protegen contra solapes; el
+scheduler solo los invoca. **YouTube publica solo** los Shorts ya subidos con
+fecha, así que nada de esto afecta la cadencia de publicación.
+
+## Modo continuo por SO
+
+- **Linux**: `packaging/systemd/aurclips-watch.service` (Type=simple,
+  Restart=on-failure, TimeoutStopSec generoso porque un render tarda minutos):
+  cópialo a `~/.config/systemd/user/`, ajusta la ruta y
+  `systemctl --user enable --now aurclips-watch`.
+- **macOS**: `packaging/launchd/com.aurclips.watch.plist` (RunAtLoad +
+  KeepAlive) a `~/Library/LaunchAgents/` y `launchctl load`.
+- **Windows**: una tarea "al iniciar sesión" que ejecute
+  `.venv\Scripts\aurclips.exe watch`:
+  `schtasks /create /tn aurclips-watch /sc onlogon /tr "F:\ruta\a\aurclips\.venv\Scripts\aurclips.exe watch"`
 
 Elige el mecanismo de tu SO:
 
